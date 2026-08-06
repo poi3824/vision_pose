@@ -17,6 +17,7 @@
 #      무거운 YOLO 추론과 다른 머신에서 돌 수 있도록, 예를 들면 Nav2 옆에서
 #      돌 수 있도록 일부러 별도 노드로 분리해둠.)
 
+import cv2
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -148,6 +149,11 @@ class PoseLocatorNode(Node):
         # 이번 프레임에 어떤 사람을 따라갈지 결정
         index, track_id = select_person(boxes, self.locked_track_id)
 
+        # 이번 프레임에 실제로 homography에 넣은 점/결과 - 검출이 없으면 None
+        # 유지. 오버레이 디버그 이미지에 이 점을 표시할 때 씀 (아래 참고)
+        standing_pixel = None
+        world_xy = None
+
         if index is not None:
             # 다음 프레임의 select_person 호출이 같은 사람을 계속
             # 우선적으로 따라가도록 이 사람의 트래커 id를 기억해둠
@@ -173,6 +179,8 @@ class PoseLocatorNode(Node):
             # 그 픽셀을 캘리브레이션된 homography에 통과시켜서
             # map 프레임 기준 실제 (x, y)(미터 단위)를 얻음
             x, y = apply_homography(u, v, self.homography)
+            standing_pixel = (u, v)
+            world_xy = (x, y)
 
             # 결과를 map 프레임 기준 PointStamped로 publish
             point_msg = PointStamped()
@@ -193,6 +201,18 @@ class PoseLocatorNode(Node):
             # 그려줌 - `ros2 run rqt_image_view rqt_image_view`로 검출/트래킹이
             # 잘 되는지 눈으로 확인할 때 유용함
             overlay = result.plot()
+
+            # homography에 실제로 들어간 점(양발 중점)과 그 결과 map 좌표를
+            # 자홍색으로 따로 표시 - YOLO 스켈레톤 색과 안 겹치게 해서, 캘리브레이션이
+            # 맞는지(마커가 실제 발 위치에 찍히는지) 눈으로 바로 확인할 수 있게 함
+            if standing_pixel is not None:
+                u, v = standing_pixel
+                x, y = world_xy
+                cv2.drawMarker(overlay, (int(u), int(v)), (255, 0, 255),
+                                cv2.MARKER_CROSS, 20, 3)
+                cv2.putText(overlay, f'map: ({x:.2f}, {y:.2f})', (int(u) + 12, int(v) - 12),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+
             overlay_msg = encode_jpeg(overlay, quality=self.overlay_jpeg_quality)
             self.overlay_pub.publish(overlay_msg)
 

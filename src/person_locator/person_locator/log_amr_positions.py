@@ -18,6 +18,7 @@ import threading
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import PoseWithCovarianceStamped
 import yaml
 
@@ -36,8 +37,14 @@ class PoseListener(Node):
         self.output_path = self.get_parameter('output').value
 
         self.latest_xy = None
+        # amcl_pose는 TRANSIENT_LOCAL로 발행됨(마지막 값을 새 구독자에게 즉시
+        # 재전달) - 기본 QoS(VOLATILE)로 구독하면 이 재전달을 못 받아서, 로봇이
+        # 안 움직여 amcl이 새로 publish를 안 하는 동안은 계속 기다리게 됨
+        qos = QoSProfile(depth=10)
+        qos.reliability = ReliabilityPolicy.RELIABLE
+        qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.subscription = self.create_subscription(
-            PoseWithCovarianceStamped, pose_topic, self.pose_callback, 10
+            PoseWithCovarianceStamped, pose_topic, self.pose_callback, qos
         )
         self.get_logger().info(f'log_amr_positions: "{pose_topic}"에서 pose 기다리는 중...')
 
